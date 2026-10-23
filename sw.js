@@ -1,4 +1,4 @@
-const CACHE_NAME = "mifortuna-v1";
+const CACHE_NAME = "mifortuna-v2";
 
 const APP_FILES = [
   "./",
@@ -6,6 +6,7 @@ const APP_FILES = [
   "./manifest.json"
 ];
 
+// Instalar la nueva versión
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -14,6 +15,7 @@ self.addEventListener("install", (event) => {
   );
 });
 
+// Activar la nueva versión y eliminar cachés antiguas
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
@@ -31,17 +33,18 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Gestionar las solicitudes
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  // No interceptar solicitudes que no sean GET.
+  // No interceptar solicitudes que no sean GET
   if (request.method !== "GET") {
     return;
   }
 
-  // No interceptar solicitudes de otros orígenes.
   const requestURL = new URL(request.url);
 
+  // No interceptar solicitudes de otros dominios
   if (requestURL.origin !== self.location.origin) {
     return;
   }
@@ -50,36 +53,55 @@ self.addEventListener("fetch", (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
 
-      // Primero, buscar la solicitud en caché.
+      // Para la página principal, intentar obtener siempre
+      // la versión más reciente del servidor
+      if (request.mode === "navigate") {
+        try {
+          const response = await fetch(request);
+
+          if (response.ok && response.type === "basic") {
+            await cache.put("./index.html", response.clone());
+          }
+
+          return response;
+        } catch (error) {
+          // Si no hay conexión, utilizar la copia guardada
+          const cachedPage = await cache.match("./index.html");
+
+          if (cachedPage) {
+            return cachedPage;
+          }
+
+          return new Response(
+            "No hay conexión. Inténtalo de nuevo cuando tengas Internet.",
+            {
+              status: 503,
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8"
+              }
+            }
+          );
+        }
+      }
+
+      // Para otros archivos, consultar primero la caché
       const cachedResponse = await cache.match(request);
 
       if (cachedResponse) {
         return cachedResponse;
       }
 
-      // Si no está en caché, intentar obtenerla de Internet.
+      // Si no está guardado, solicitarlo al servidor
       try {
         const response = await fetch(request);
 
-        // Guardar únicamente respuestas correctas y del mismo origen.
         if (response.ok && response.type === "basic") {
           await cache.put(request, response.clone());
         }
 
         return response;
       } catch (error) {
-        // Si falla la conexión, ofrecer index.html como respaldo
-        // para la navegación dentro de la aplicación.
-        if (request.mode === "navigate") {
-          const fallback = await cache.match("./index.html");
-
-          if (fallback) {
-            return fallback;
-          }
-        }
-
-        // Para otros recursos sin conexión, devolver un error.
-        return new Response("Sin conexión a Internet.", {
+        return new Response("Recurso no disponible sin conexión.", {
           status: 503,
           statusText: "Service Unavailable",
           headers: {
